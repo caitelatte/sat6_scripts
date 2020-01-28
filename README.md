@@ -378,9 +378,6 @@ puppet-forge-server:
   token: ArtifactoryAPIToken
 ```
 
-If there is no puppet-forge-server instance to target, this section should be left empty,
-but with the header (`puppet-forge-server:`) still defined.
-
 #### push_puppetforge Help Output
 
 ```bash
