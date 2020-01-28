@@ -37,25 +37,59 @@ The Export and Import scripts are intended to be run on the Satellite servers di
 * sat_import is intended to run on the Disconnected Satellite.
 * The scripts make use of the Satellite REST API, and require an admin account on the Satellite server.
 
-```bash
-hammer user create --login svc-api-user --firstname API --lastname User \
-  --password='1t$a$3cr3t' --mail no-reply@example.org --auth-source-id 1 \
-  --organization-ids 1 --default-organization-id 1 --admin true
-```
+## Install Instructions
 
-Foreman needs to be configured to export content to the location you require. By default the path is
-/var/lib/pulp/katello-export - this will result in you probably filling your /var/lib/pulp partition!
-The configs in these scripts assume that the exports are going to /var/sat-export - this should be a
-dedicated partition or even better dedicated disk just for export content.
+1.  Create a service account for API use in each targeted Satellite server.
 
-To set the default export location in foreman:
+    ```bash
+    $ hammer user create --login svc-sat-api-user --firstname Satellite \
+      --lastname APIUser --password='<PASSWORD>' --mail no-reply@example.org \
+      --auth-source-id 1 --organization-ids 1 --default-organization-id 1 \
+      --admin true
+    ```
 
-```bash
-hammer settings set --name pulp_export_destination --value /var/sat-export
-chown foreman:foreman /var/sat-export
-semanage fcontext -a -t foreman_var_run_t "/var/sat-export(/.*)?"
-restorecon -RvF /var/sat-export
-```
+2.  Install the sat6_scripts RPM, available from
+    [the GitHub Releases page](https://github.com/RedHatSatellite/sat6_scripts/releases).
+3.  Configure the `/usr/share/sat6_scripts/config.yml` and
+    `/usr/share/sat6_scripts/exports.yml` config files as detailed in the
+    [Configuration section](#configuration). If copying files in from somewhere
+    else, make sure to set the permissions appropriately (0600).
+
+### Set up exporting Satellite server
+
+1.  Foreman needs to be configured to export content to the location you require. By default the path is
+    /var/lib/pulp/katello-export - this will result in you probably filling your /var/lib/pulp partition!
+    The configs in these scripts assume that the exports are going to /var/sat-export - this should be a
+    dedicated partition or even better dedicated disk just for export content.
+    1.  (Recommended) Add a logical volume and mount it to `/var/sat-export`. The size of this logical
+        volume should be double the size of the existing disk for `/var/lib/pulp` to allow
+        for full exports to exist at the same time as a previous full export.
+2.  Configure Satellite to export to the new volume:
+
+    ```bash
+    $ hammer settings set --name pulp_export_destination --value /var/sat-export
+    $ chown foreman:foreman /var/sat-export
+    $ semanage fcontext -a -t foreman_var_run_t '/var/sat-export(/.*)?'
+    $ restorecon -RvF /var/sat-export
+    ```
+
+3.  Set the default download policy.
+
+    ```bash
+    $ hammer settings set --name default_download_policy --value immediate
+    ```
+
+    If this is being run after Satellite is already set up, each existing
+    repository will need its Download Policy set to Immediate. See the solution
+    guide for instructions to set these:
+    [How to change download policy of repositories in Red Hat Satellite 6?](https://access.redhat.com/solutions/3481621)
+
+### Set up importing Satellite server
+
+1.  Add a logical volume and mount it to `/var/sat-content`. The size of this
+    logical volume should be approximately the same size of the connected
+    Satellite’s disk for /var/lib/pulp, or less if this Satellite won't be an
+    exact mirror.
 
 ## Assumptions
 
@@ -99,6 +133,7 @@ import:
   dir: /var/sat-content          (Directory to import content from - Disconnected Satellite)
   syncbatch: 50                  (Number of repositories to sync at once during import)
 ```
+
 
 ## Log files
 
@@ -212,7 +247,7 @@ puppet module export can be performed so that it is consumable by puppet-forge-s
 as well as Satellite - this is done using the -p flag, and results in a /puppetforge
 directory being written to the import directory during the sat_import process.
 
-#### Help Output
+#### sat_export Help Output
 
 ```bash
 usage: sat_export.py [-h] [-o ORG] [-e ENV] [-a | -i | -s SINCE] [-l] [-n] [-S SIZE]
@@ -238,7 +273,7 @@ optional arguments:
   --forcexport          Force export from an import-only (Disconnected) Satellite
 ```
 
-#### Examples
+#### sat_export Examples
 
 ```bash
 ./sat_export.py -e DEV              # Incr export of repos defined in the DEV config
@@ -289,7 +324,7 @@ In these cases, the --fixhistory flag can be used to 'reset' the import history
 so that it matches the export history of the current import dataset, clearing
 these warnings.
 
-#### Help Output
+#### sat_import Help Output
 
 ```bash
 usage: sat_import.py [-h] [-o ORG] -d DATE [-n] [-r] [-l] [-L] [-c] [-f] [--fixhistory] [-u]
@@ -310,7 +345,7 @@ optional arguments:
   --fixhistory          Force import history to match export history  
 ```
 
-#### Examples
+#### sat_import Examples
 
 ```bash
 ./sat_import.py -d 20160729-1021_DEV -n         # Import content defined in DEV.yml but do not sync
@@ -343,7 +378,10 @@ puppet-forge-server:
   token: ArtifactoryAPIToken
 ```
 
-#### Help Output
+If there is no puppet-forge-server instance to target, this section should be left empty,
+but with the header (`puppet-forge-server:`) still defined.
+
+#### push_puppetforge Help Output
 
 ```bash
 usage: push_puppetforge.py [-h] [-o ORG] [-r REPO] [-t TYPE] [-s SERVER] [-m MODULEPATH] [-u USER]
@@ -355,7 +393,7 @@ optional arguments:
   -o ORG, --org ORG     Organization (Uses default if not specified)
   -r REPO, --repo REPO  Puppetforge repository label
   -t TYPE, --type TYPE  Puppetforge server type (puppet-forge-server|artifactory)
-  -s SERVER, --server SERVER   
+  -s SERVER, --server SERVER
                         puppet-forge-server hostname
   -m MODULEPATH, --modulepath MODULEPATH
                         path to puppet-forge-server modules
@@ -365,7 +403,7 @@ optional arguments:
                         Token for Artifactory API authentication
 ```
 
-#### Examples
+#### push_puppetforge Examples
 
 ```bash
 ./push_puppetforge.py -r Puppet_Forge  
@@ -428,7 +466,7 @@ cleanup:
 This configuration will clean only the two listed content views, and keep the
 specified number of versions beyond the oldest in-use.
 
-#### Help Output
+#### clean_content_views Help Output
 
 ```bash
 usage: clean_content_views.py [-h] [-o ORG] [-a] [-c] [-d] [-i]
@@ -445,7 +483,7 @@ optional arguments:
   -d, --dryrun          Dry Run - Only show what will be cleaned
 ```
 
-#### Examples
+#### clean_content_views Examples
 
 ```bash
 ./clean_content_views.py          # Clean views using the default config
@@ -492,10 +530,10 @@ This configuration will publish only the two listed content views.
 The batch: parameter can be used to limit the number of content views that will be published at
 once, to aid in performance tuning.
 
-#### Help Output
+#### publish_content_views Help Output
 
 ```bash
-usage: publish_content_view.py [-h] [-o ORG] [-a] [-d] [-c COMMENT] [-m] [-q] [-l]
+usage: publish_content_views.py [-h] [-o ORG] [-a] [-d] [-c COMMENT] [-m] [-q] [-l]
 
 Publishes content views for specified organization.
 
@@ -510,12 +548,12 @@ optional arguments:
   -m, --forcemeta    Force metadata regeneration
 ```
 
-#### Examples
+#### publish_content_views Examples
 
 ```bash
-./publish_content_view.py                   # Publish the default content views
-./publish_content_view.py -a                # Publish ALL content views
-./publish_content_view.py -a -o OtherOrg -d # Dry-run on all OtherOrg views
+./publish_content_views.py                   # Publish the default content views
+./publish_content_views.py -a                # Publish ALL content views
+./publish_content_views.py -a -o OtherOrg -d # Dry-run on all OtherOrg views
 ```
 
 ### promote_content_views
@@ -568,7 +606,7 @@ issue promoting views from the Library, as this is shared by all environments.
 The batch: parameter can be used to limit the number of content views that will be promoted at
 once, to aid in performance tuning.
 
-#### Help Output
+#### promote_content_views Help Output
 
 ```bash
 usage: promote_content_view.py [-h] -e ENV [-o ORG] [-a] [-d] [-m] [-q] [-l]
@@ -587,7 +625,7 @@ optional arguments:
   -m, --forcemeta    Force metadata regeneration
 ```
 
-#### Examples
+#### promote_content_views Examples
 
 ```bash
 ./promote_content_view.py -e Quality            # Promote default views to Quality
